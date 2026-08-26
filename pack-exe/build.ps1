@@ -117,6 +117,15 @@ if (Test-Path (Join-Path $OutApp "electron.exe")) {
   throw "electron.exe not found in dist"
 }
 
+# Slim the Electron shell: keep only en-US/zh-CN locales and drop the
+# chromium license page (not used at runtime).
+Write-Host "  slimming Electron shell ..."
+$LocalesDir = Join-Path $OutApp "locales"
+if (Test-Path $LocalesDir) {
+  Get-ChildItem $LocalesDir -Filter "*.pak" | Where-Object { $_.BaseName -notin @("en-US", "zh-CN") } | Remove-Item -Force
+}
+Remove-Item (Join-Path $OutApp "LICENSES.chromium.html") -Force -ErrorAction SilentlyContinue
+
 Write-Host "==> [5/8] Copy app code (main.js) into resources\app" -ForegroundColor Cyan
 $AppDst = Join-Path $OutApp "resources\app"
 Copy-WithRobocopy -Source $AppSource -Destination $AppDst -ExcludeDirs @("node_modules", (Join-Path $AppSource "node_modules"))
@@ -127,7 +136,15 @@ New-Item -ItemType Directory -Path (Join-Path $OutApp "resources\runtime") -Forc
 Copy-Item $NodeExe (Join-Path $OutApp "resources\runtime\node.exe") -Force
 
 Write-Host "==> [7/8] Copy repository + node_modules into resources\runtime\repo" -ForegroundColor Cyan
-Copy-WithRobocopy -Source $RepoRoot -Destination $Runtime -ExcludeDirs @("node_modules", ".git", (Join-Path $RepoRoot "pack-exe"), (Join-Path $RepoRoot "out"), "build.log")
+# Name-based /XD exclusions: robocopy matches these against the source tree
+# (absolute paths match the destination tree instead and silently fail).
+# Only what dsh needs at runtime is copied; dev/CI material is dropped.
+$RepoExcludes = @(
+  "node_modules", ".git", "pack-exe", "out", "build.log",
+  ".agents", ".claude", ".github", ".dsh-build",
+  "docs", "examples", "scripts", "website", "python", "patches"
+)
+Copy-WithRobocopy -Source $RepoRoot -Destination $Runtime -ExcludeDirs $RepoExcludes
 
 $RootNmSrc = Join-Path $RepoRoot "node_modules"
 $RootNmDst = Join-Path $Runtime "node_modules"
@@ -139,12 +156,32 @@ $childNms = Get-ChildItem $RepoRoot -Recurse -Directory -Filter "node_modules" -
 $handled = 0
 foreach ($childNm in $childNms) {
   $rel = $childNm.FullName.Substring($RepoRoot.Length).TrimStart("\", "/")
+  # Skip node_modules under directories that were excluded from the snapshot.
+  $skip = $false
+  foreach ($ex in $RepoExcludes) {
+    if ($rel -like "$ex\*" -or $rel -eq $ex) { $skip = $true; break }
+  }
+  if ($skip) { continue }
   $childDst = Join-Path $Runtime $rel
   Copy-WithRobocopy -Source $childNm.FullName -Destination $childDst
   Invoke-Checked $NodeExe @((Join-Path $Scripts "copy-links.mjs"), $RepoRoot, $Runtime, $childNm.FullName, $childDst)
   $handled++
 }
 Write-Host "  recreated junctions for $handled child node_modules trees"
+
+# Post-cleanup: drop packages that no runtime dependency closure references.
+# subagent-codex / subagent-claude-code are orphan workspace packages (no
+# bundle mounts them), and mermaid is a docs-toolchain devDependency only.
+Write-Host "  dropping unused heavy packages (codex, claude-agent-sdk, mermaid) ..."
+$PnpmDst = Join-Path $RootNmDst ".pnpm"
+if (Test-Path $PnpmDst) {
+  Get-ChildItem $PnpmDst -Directory -ErrorAction SilentlyContinue | Where-Object {
+    $_.Name -like "@openai+codex*" -or
+    $_.Name -like "@anthropic-ai+claude-agent-sdk*" -or
+    $_.Name -like "mermaid@*" -or
+    $_.Name -like "@mermaid-js+*"
+  } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host "==> [8/8] Write version info" -ForegroundColor Cyan
 $version = (Get-Content (Join-Path $RepoRoot "apps\cli\package.json") -Raw | ConvertFrom-Json).version

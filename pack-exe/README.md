@@ -68,9 +68,10 @@ git clone https://github.com/deepseek-ai/deepseek-harness.git
 
 1. **构建**：调用仓库自带的 `pnpm run build` 产出 TS 库与 Web 前端产物
 2. **Electron 壳**：使用 Electron 42（`app\node_modules\electron\dist`，可手动放置或首次自动安装），主程序 `main.js` 负责：启动 dsh web 服务 → 轮询端口就绪 → 创建应用窗口加载 `http://127.0.0.1:3080` → 窗口关闭时结束服务进程树
-3. **复制**：仓库快照（排除 `.git`/`node_modules`）+ 便携 `node.exe` + 完整 `node_modules` 到 `resources\runtime`
+3. **复制**：仓库快照（排除 `.git`/`node_modules` 及 docs/scripts/website 等运行时无关目录）+ 便携 `node.exe` + 完整 `node_modules` 到 `resources\runtime`
 4. **重建链接**：pnpm 的 node_modules 依赖大量 junction 目录链接，robocopy 不保留，由 `copy-links.mjs` 遍历源树逐一重建并重映射目标路径
-5. **验证**：设置环境变量 `DSH_GUI_SMOKE=1` 启动 `dsh.exe` 可在页面加载完成后自动退出（用于自动化冒烟测试）
+5. **体积优化**：删除运行时依赖闭包外的孤儿包（`@openai/codex`、`@anthropic-ai/claude-agent-sdk`、docs 工具链 `mermaid` 等，约 730MB）；Electron 仅保留 en-US/zh-CN 语言包；产物约 **1.0GB**（自包含）
+6. **验证**：设置环境变量 `DSH_GUI_SMOKE=1` 启动 `dsh.exe` 可在页面加载完成后自动退出（用于自动化冒烟测试）
 
 ## 开发调试
 
@@ -83,6 +84,6 @@ cd pack-exe\app
 
 ## 已知限制
 
-- 产物体积较大（3GB+ 统计口径，其中约 1.4GB 为 node_modules 真实内容），这是 dsh 插件式架构与全量自包含的取舍
+- 产物体积约 1.0GB（自包含 Electron + Node + 全量生产依赖），这是 dsh 插件式架构与全量自包含的取舍
 - `dsh plugin add`（运行时安装插件）依赖 pnpm 环境，在打包应用中不可用；如需扩展插件请在原仓库中安装后重新打包
 - 打包环境要求：Windows 10/11、PowerShell 5.1+；首次打包需要网络下载 Electron（约 140MB，国内可手动下载 zip 放置到 `app\node_modules\electron\dist`）

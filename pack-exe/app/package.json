@@ -1,0 +1,12 @@
+{
+  "name": "dsh-desktop",
+  "productName": "DeepSeek Harness",
+  "version": "0.1.0",
+  "description": "Desktop window app for DeepSeek Harness (dsh)",
+  "main": "main.js",
+  "license": "MIT",
+  "private": true,
+  "devDependencies": {
+    "electron": "^37.0.0"
+  }
+}

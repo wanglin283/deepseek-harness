@@ -39,3 +39,6 @@ apps/web/dist/
 worktrees/
 .agents/worktrees/
 .typert-*/
+
+# �����־��pack-exe/build.ps1 ���ɣ�
+build.log

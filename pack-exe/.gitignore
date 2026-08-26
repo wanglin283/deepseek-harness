@@ -1,0 +1,8 @@
+# 打包产物（build.ps1 生成，约 3.5GB，绝不提交）
+out/
+
+# Electron 运行时二进制（首次打包时自动安装，或按 README 手动放置）
+app/node_modules/
+
+# npm 安装残留（Electron 采用手动放置方式，不依赖 npm install）
+app/package-lock.json

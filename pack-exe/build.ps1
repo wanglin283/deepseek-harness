@@ -131,9 +131,13 @@ $AppDst = Join-Path $OutApp "resources\app"
 Copy-WithRobocopy -Source $AppSource -Destination $AppDst -ExcludeDirs @("node_modules", (Join-Path $AppSource "node_modules"))
 if (-not (Test-Path (Join-Path $AppDst "main.js"))) { throw "main.js missing in app bundle" }
 
-Write-Host "==> [6/8] Copy node.exe into resources\runtime" -ForegroundColor Cyan
-New-Item -ItemType Directory -Path (Join-Path $OutApp "resources\runtime") -Force | Out-Null
-Copy-Item $NodeExe (Join-Path $OutApp "resources\runtime\node.exe") -Force
+Write-Host "==> [6/8] Copy node.exe + relink tooling into resources\runtime" -ForegroundColor Cyan
+$RuntimeRoot = Join-Path $OutApp "resources\runtime"
+New-Item -ItemType Directory -Path $RuntimeRoot -Force | Out-Null
+Copy-Item $NodeExe (Join-Path $RuntimeRoot "node.exe") -Force
+Copy-Item (Join-Path $Scripts "relink.mjs") (Join-Path $RuntimeRoot "relink.mjs") -Force
+$LinkMap = Join-Path $RuntimeRoot "linkmap.json"
+if (Test-Path $LinkMap) { Remove-Item $LinkMap -Force }
 
 Write-Host "==> [7/8] Copy repository + node_modules into resources\runtime\repo" -ForegroundColor Cyan
 # Name-based /XD exclusions: robocopy matches these against the source tree
@@ -149,7 +153,7 @@ Copy-WithRobocopy -Source $RepoRoot -Destination $Runtime -ExcludeDirs $RepoExcl
 $RootNmSrc = Join-Path $RepoRoot "node_modules"
 $RootNmDst = Join-Path $Runtime "node_modules"
 Copy-WithRobocopy -Source $RootNmSrc -Destination $RootNmDst
-Invoke-Checked $NodeExe @((Join-Path $Scripts "copy-links.mjs"), $RepoRoot, $Runtime, $RootNmSrc, $RootNmDst)
+Invoke-Checked $NodeExe @((Join-Path $Scripts "copy-links.mjs"), $RepoRoot, $Runtime, $RootNmSrc, $RootNmDst, $LinkMap)
 
 $childNms = Get-ChildItem $RepoRoot -Recurse -Directory -Filter "node_modules" -ErrorAction SilentlyContinue |
   Where-Object { $_.FullName -ne $RootNmSrc }
@@ -164,7 +168,7 @@ foreach ($childNm in $childNms) {
   if ($skip) { continue }
   $childDst = Join-Path $Runtime $rel
   Copy-WithRobocopy -Source $childNm.FullName -Destination $childDst
-  Invoke-Checked $NodeExe @((Join-Path $Scripts "copy-links.mjs"), $RepoRoot, $Runtime, $childNm.FullName, $childDst)
+  Invoke-Checked $NodeExe @((Join-Path $Scripts "copy-links.mjs"), $RepoRoot, $Runtime, $childNm.FullName, $childDst, $LinkMap)
   $handled++
 }
 Write-Host "  recreated junctions for $handled child node_modules trees"

@@ -8,15 +8,21 @@
  * destination repository root; anything else is reported as a warning and
  * left out.
  *
- * usage: node copy-links.mjs <srcRoot> <dstRoot> <srcDir> <dstDir>
+ * With a manifest file (optional 5th argument), every recreated junction is
+ * recorded as a relative link -> relative target pair. The app later uses
+ * this manifest (relink.mjs) to repair junctions after the bundle is moved
+ * to a different machine/path, where the absolute targets recorded here
+ * would otherwise dangle.
+ *
+ * usage: node copy-links.mjs <srcRoot> <dstRoot> <srcDir> <dstDir> [manifestFile]
  */
 
-import { lstatSync, mkdirSync, readdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from 'node:fs'
+import { lstatSync, mkdirSync, readdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 
-const [, , srcRootArg, dstRootArg, srcDirArg, dstDirArg] = process.argv
+const [, , srcRootArg, dstRootArg, srcDirArg, dstDirArg, manifestArg] = process.argv
 if (!srcRootArg || !dstRootArg || !srcDirArg || !dstDirArg) {
-  console.error('usage: node copy-links.mjs <srcRoot> <dstRoot> <srcDir> <dstDir>')
+  console.error('usage: node copy-links.mjs <srcRoot> <dstRoot> <srcDir> <dstDir> [manifestFile]')
   process.exit(1)
 }
 
@@ -24,6 +30,20 @@ const srcRoot = resolve(srcRootArg)
 const dstRoot = resolve(dstRootArg)
 const srcDir = resolve(srcDirArg)
 const dstDir = resolve(dstDirArg)
+
+const toPosix = (p) => p.split(sep).join('/')
+
+// Manifest: { links: { "<linkRelPath>": "<targetRelPath>" } }, both relative
+// to dstRoot and slash-separated. Accumulates across invocations.
+let manifest = { links: {} }
+if (manifestArg) {
+  try {
+    manifest = JSON.parse(readFileSync(manifestArg, 'utf8'))
+    if (typeof manifest.links !== 'object' || manifest.links === null) manifest = { links: {} }
+  } catch {
+    manifest = { links: {} }
+  }
+}
 
 let created = 0
 const warnings = []
@@ -90,6 +110,9 @@ function walk(dir) {
         }
         symlinkSync(mapped, dstLink, 'junction')
         created++
+        if (manifestArg) {
+          manifest.links[toPosix(relative(dstRoot, dstLink))] = toPosix(relative(dstRoot, mapped))
+        }
       } catch (error) {
         warnings.push(`failed to recreate ${path}: ${error.message}`)
       }
@@ -103,6 +126,10 @@ walk(srcDir)
 console.log(`copy-links: ${created} junction(s) recreated under ${dstDir}`)
 for (const warning of warnings) {
   console.warn(`  ${warning}`)
+}
+if (manifestArg) {
+  writeFileSync(manifestArg, JSON.stringify(manifest, null, 2))
+  console.log(`copy-links: manifest written (${Object.keys(manifest.links).length} entries)`)
 }
 if (warnings.length > 0) {
   process.exitCode = 1

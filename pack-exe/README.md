@@ -69,9 +69,10 @@ git clone https://github.com/deepseek-ai/deepseek-harness.git
 1. **构建**：调用仓库自带的 `pnpm run build` 产出 TS 库与 Web 前端产物
 2. **Electron 壳**：使用 Electron 42（`app\node_modules\electron\dist`，可手动放置或首次自动安装），主程序 `main.js` 负责：启动 dsh web 服务 → 轮询端口就绪 → 创建应用窗口加载 `http://127.0.0.1:3080` → 窗口关闭时结束服务进程树
 3. **复制**：仓库快照（排除 `.git`/`node_modules` 及 docs/scripts/website 等运行时无关目录）+ 便携 `node.exe` + 完整 `node_modules` 到 `resources\runtime`
-4. **重建链接**：pnpm 的 node_modules 依赖大量 junction 目录链接，robocopy 不保留，由 `copy-links.mjs` 遍历源树逐一重建并重映射目标路径
+4. **重建链接**：pnpm 的 node_modules 依赖大量 junction 目录链接，robocopy 不保留，由 `copy-links.mjs` 遍历源树逐一重建并重映射目标路径，同时生成相对路径映射表 `linkmap.json`
 5. **体积优化**：删除运行时依赖闭包外的孤儿包（`@openai/codex`、`@anthropic-ai/claude-agent-sdk`、docs 工具链 `mermaid` 等，约 730MB）；Electron 仅保留 en-US/zh-CN 语言包；产物约 **1.0GB**（自包含）
-6. **验证**：设置环境变量 `DSH_GUI_SMOKE=1` 启动 `dsh.exe` 可在页面加载完成后自动退出（用于自动化冒烟测试）
+6. **移动后自修复**：应用每次启动时由 `relink.mjs` 按 `linkmap.json` 校验/重建 junction（幂等，约 2 秒）——拷贝到任何机器/路径都能直接运行，无需重新打包；服务日志写入 `resources\runtime\dsh.log` 便于排障
+7. **验证**：设置环境变量 `DSH_GUI_SMOKE=1` 启动 `dsh.exe` 可在页面加载完成后自动退出（用于自动化冒烟测试）
 
 ## 开发调试
 

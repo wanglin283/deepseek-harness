@@ -14,7 +14,7 @@
 // Set DSH_GUI_SMOKE=1 to auto-close after the page loads (used by build tests).
 
 const { app, BrowserWindow, dialog, shell } = require('electron')
-const { spawn } = require('child_process')
+const { spawn, execFileSync } = require('child_process')
 const path = require('path')
 const fs = require('fs')
 const net = require('net')
@@ -29,6 +29,29 @@ function locateRuntime() {
   const devRuntime = process.env.DSH_GUI_RUNTIME
   if (devRuntime) return devRuntime
   throw new Error('development run requires DSH_GUI_RUNTIME pointing at a runtime directory')
+}
+
+// The bundle may have been copied to a new machine/path since packaging;
+// junction targets (absolute at build time) then dangle and the server
+// cannot start. Repair them from the relative linkmap before booting.
+// Run synchronously every launch: relink is idempotent (verifies ~8k links
+// in a couple of seconds) and a probe of a single link is not reliable
+// enough to skip the check.
+function repairLinks(runtimeDir) {
+  const repoDir = path.join(runtimeDir, 'repo')
+  const manifestFile = path.join(runtimeDir, 'linkmap.json')
+  const relinkScript = path.join(runtimeDir, 'relink.mjs')
+  if (!fs.existsSync(manifestFile) || !fs.existsSync(relinkScript)) return
+  try {
+    const output = execFileSync(
+      path.join(runtimeDir, 'node.exe'),
+      [relinkScript, repoDir, manifestFile],
+      { timeout: 120_000, stdio: 'pipe' },
+    )
+    console.log('[gui]', output.toString().trim())
+  } catch (error) {
+    console.error('[gui] link repair failed:', error.message)
+  }
 }
 
 function waitForServer(onReady, onTimeout) {
@@ -53,6 +76,18 @@ function waitForServer(onReady, onTimeout) {
 
 let serverProcess = null
 
+function logFile(runtimeDir) {
+  return path.join(runtimeDir, 'dsh.log')
+}
+
+function writeLog(runtimeDir, line) {
+  try {
+    fs.appendFileSync(logFile(runtimeDir), `${new Date().toISOString()} ${line}\n`)
+  } catch {
+    // best effort
+  }
+}
+
 function stopServer() {
   if (serverProcess === null || serverProcess.pid === undefined) return
   const pid = serverProcess.pid
@@ -75,15 +110,24 @@ function startServer() {
       throw new Error(`missing ${required} — is this a complete dsh-app bundle?`)
     }
   }
+  repairLinks(runtimeDir)
   serverProcess = spawn(nodeExe, [entry, 'web', '--no-open'], {
     cwd: repoDir,
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
-  serverProcess.stdout.on('data', (chunk) => console.log('[dsh]', chunk.toString().trim()))
-  serverProcess.stderr.on('data', (chunk) => console.error('[dsh]', chunk.toString().trim()))
+  const pipeToLog = (prefix) => (chunk) => {
+    const line = chunk.toString().trim()
+    if (line) {
+      console.log(prefix, line)
+      writeLog(runtimeDir, `${prefix} ${line}`)
+    }
+  }
+  serverProcess.stdout.on('data', pipeToLog('[dsh]'))
+  serverProcess.stderr.on('data', pipeToLog('[dsh]'))
   serverProcess.on('exit', (code, signal) => {
     console.log(`[dsh] server exited (code=${code}, signal=${signal})`)
+    writeLog(runtimeDir, `server exited (code=${code}, signal=${signal})`)
     serverProcess = null
   })
 }
@@ -141,7 +185,12 @@ app.whenReady().then(() => {
       createWindow()
     },
     (error) => {
-      dialog.showErrorBox('dsh-desktop', String(error))
+      // Point the user at the server log for the root cause.
+      const logPath = logFile(locateRuntime())
+      const detail = fs.existsSync(logPath)
+        ? `${error}\n\nServer log: ${logPath}`
+        : String(error)
+      dialog.showErrorBox('dsh-desktop', detail)
       app.exit(1)
     },
   )

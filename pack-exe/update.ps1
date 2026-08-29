@@ -57,7 +57,9 @@ function Invoke-Checked {
 Push-Location $RepoRoot
 try {
   Write-Host "==> [1/5] Check worktree is clean" -ForegroundColor Cyan
-  $dirty = & git status --porcelain
+  # pack-exe is intentionally untracked on master (local tooling restored
+  # from the feature branch), so its presence is not a dirty state.
+  $dirty = & git status --porcelain | Where-Object { $_ -notmatch '^\?\? pack-exe/' }
   if ($LASTEXITCODE -ne 0) { throw "git status failed" }
   if ($dirty) {
     Write-Host "  uncommitted changes present:" -ForegroundColor Yellow
@@ -73,8 +75,14 @@ try {
   New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
   # git archive includes only committed pack-exe files (out/, app/node_modules
   # and other gitignored material stays behind - exactly what packaging needs).
-  & git archive $Branch pack-exe | tar -x -C $TempDir
-  if ($LASTEXITCODE -ne 0) { throw "extracting pack-exe failed" }
+  # Use zip + Expand-Archive: piping git archive into tar corrupts on Windows
+  # and tar can still exit 0 on a damaged stream, which hides the failure.
+  $PackZip = Join-Path $TempDir "pack-exe.zip"
+  Invoke-Checked "git" @("archive", "--format=zip", "-o", $PackZip, $Branch, "pack-exe")
+  Expand-Archive -Path $PackZip -DestinationPath $TempDir -Force
+  if (-not (Test-Path (Join-Path $TempDir "pack-exe"))) {
+    throw "extracting pack-exe failed (archive not found)"
+  }
   Write-Host "  extracted to $TempDir"
 
   Write-Host "==> [3/5] Sync master to origin/master" -ForegroundColor Cyan

@@ -71,9 +71,12 @@ if (-not $NodeDir -or -not (Test-Path (Join-Path $NodeDir "node.exe"))) {
 $NodeExe = Join-Path $NodeDir "node.exe"
 Write-Host "  node: $NodeExe"
 
-# Workspace dependencies.
-if (-not (Test-Path (Join-Path $RepoRoot "node_modules"))) {
-  Write-Host "  node_modules missing, running pnpm install ..."
+# Workspace dependencies: install when missing or when the lockfile is
+# newer than node_modules (upstream may have changed the dependency tree).
+$NmLock = Get-Item (Join-Path $RepoRoot "node_modules") -ErrorAction SilentlyContinue
+$LockStat = Get-Item (Join-Path $RepoRoot "pnpm-lock.yaml") -ErrorAction SilentlyContinue
+if (-not $NmLock -or ($LockStat -and $LockStat.LastWriteTime -gt $NmLock.LastWriteTime)) {
+  Write-Host "  installing dependencies (lockfile changed or node_modules missing) ..."
   $env:CI = "true"
   Invoke-Checked "pnpm" @("install")
 }

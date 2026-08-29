@@ -84,9 +84,24 @@ try {
   Copy-Item (Join-Path $TempDir "pack-exe") (Join-Path $RepoRoot "pack-exe") -Recurse -Force
   Write-Host "  pack-exe restored (untracked local tooling)"
 
-  Write-Host "==> [5/5] Build and package" -ForegroundColor Cyan
-  $buildArgs = @((Join-Path $RepoRoot "pack-exe\build.ps1"))
-  if ($SkipBuild) { $buildArgs += "-SkipBuild" }
+  Write-Host "==> [5/6] Build (forced: upstream may have added packages)" -ForegroundColor Cyan
+  # build.ps1 only builds when artifacts are missing, which is wrong after an
+  # upgrade (stale lib/bin.js would silently skip building newly added
+  # packages). Force the full build here unless -SkipBuild.
+  if (-not $SkipBuild) {
+    $env:CI = "true"
+    # Prefer the known-good Node 24 portable runtime for the build.
+    $nodeDir = "D:\Program\SDKS\node-v24.19.0-win-x64"
+    if (-not (Test-Path (Join-Path $nodeDir "node.exe"))) {
+      $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+      if ($nodeCommand) { $nodeDir = Split-Path -Parent $nodeCommand.Source }
+    }
+    $env:PATH = "$nodeDir;$env:PATH"
+    Invoke-Checked "pnpm" @("run", "build")
+  }
+
+  Write-Host "==> [6/6] Package" -ForegroundColor Cyan
+  $buildArgs = @((Join-Path $RepoRoot "pack-exe\build.ps1"), "-SkipBuild")
   if ($SkipElectron) { $buildArgs += "-SkipElectron" }
   & powershell -NoProfile -ExecutionPolicy Bypass -File $buildArgs
   if ($LASTEXITCODE -ne 0) { throw "packaging failed with exit code $LASTEXITCODE" }

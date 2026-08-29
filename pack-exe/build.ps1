@@ -196,12 +196,28 @@ Write-Host "  recreated junctions for $handled child node_modules trees"
 Write-Host "  dropping unused heavy packages (codex, claude-agent-sdk, mermaid) ..."
 $PnpmDst = Join-Path $RootNmDst ".pnpm"
 if (Test-Path $PnpmDst) {
-  Get-ChildItem $PnpmDst -Directory -ErrorAction SilentlyContinue | Where-Object {
-    $_.Name -like "@openai+codex*" -or
-    $_.Name -like "@anthropic-ai+claude-agent-sdk*" -or
-    $_.Name -like "mermaid@*" -or
-    $_.Name -like "@mermaid-js+*"
-  } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+  # Optional platform binaries for non-Windows / non-x64 targets (rolldown,
+  # esbuild, oxlint, sharp, ripgrep, ...): the app only ever runs win32-x64.
+  $PlatformPatterns = @(
+    "*+binding-linux*", "*+binding-darwin*", "*+binding-freebsd*",
+    "*+binding-android*", "*+binding-openharmony*", "*+binding-sunos*",
+    "*@esbuild+linux*", "*@esbuild+darwin*", "*@esbuild+freebsd*",
+    "*@oxlint+binding-linux*", "*@oxlint+binding-darwin*",
+    "*@img+sharp-linux*", "*@img+sharp-darwin*",
+    "*win32-arm64*", "*win32-ia32*", "*-linux-x64*", "*-linux-arm64*",
+    "*-darwin-*", "*-freebsd-*"
+  )
+  Get-ChildItem $PnpmDst -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+    $dirName = $_.Name
+    $isPlatform = $PlatformPatterns | Where-Object { $dirName -like $_ } | Select-Object -First 1
+    if ($dirName -like "@openai+codex*" -or
+      $dirName -like "@anthropic-ai+claude-agent-sdk*" -or
+      $dirName -like "mermaid@*" -or
+      $dirName -like "@mermaid-js+*" -or
+      $null -ne $isPlatform) {
+      Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
 }
 
 Write-Host "==> [8/8] Write version info" -ForegroundColor Cyan

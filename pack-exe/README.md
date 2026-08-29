@@ -42,19 +42,20 @@ pack-exe/
 - 整个 `dsh-app` 目录可拷贝到任何 Windows 10/11 机器直接运行
 - 用户数据（会话、配置）存放在运行机器的 `%USERPROFILE%\.dsh`
 
-### DSH 升级后重新打包
+### DSH 升级后重新打包（推荐：一键自动化）
 
 ```powershell
-# 方式 A：仓库原地升级（推荐，pack-exe 无需移动）
-git pull
-pnpm install && pnpm run build
-.\pack-exe\build.ps1 -SkipBuild   # 产物已有，跳过构建可加速
+# 一条命令完成：同步官方最新代码 → 恢复打包工具 → 安装依赖 → 构建 → 打包 → 自动冒烟验证
+.\pack-exe\update.ps1
 
-# 方式 B：全新仓库
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-# 把 pack-exe 目录整个拷贝到新仓库根目录，执行：
-.\pack-exe\build.ps1
+# 网络不可用时（用本地缓存的代码）：
+.\pack-exe\update.ps1 -NoFetch
+
+# 官方新版构建失败时，回退到稳定版本：
+.\pack-exe\update.ps1 -Ref dsh-v0.1.1-rc.2
 ```
+
+`update.ps1` 会自动处理：版本切换残留清理（避免 tsdown 构建失败）、依赖同步、强制全量构建（避免旧产物跳过新包）、打包后自动冒烟测试（失败会提示回退到稳定版）。
 
 ## 常用参数
 

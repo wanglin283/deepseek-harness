@@ -27,6 +27,10 @@
 .PARAMETER SkipElectron
   Pass through to build.ps1: skip Electron install.
 
+.PARAMETER NoFetch
+  Skip git fetch and use the locally cached origin/master (useful when the
+  network is down but a recent fetch already succeeded).
+
 .EXAMPLE
   .\pack-exe\update.ps1
 
@@ -36,7 +40,8 @@
 param(
   [string]$Branch = "feat/pack-exe-windows-bundler",
   [switch]$SkipBuild,
-  [switch]$SkipElectron
+  [switch]$SkipElectron,
+  [switch]$NoFetch
 )
 
 $ErrorActionPreference = "Stop"
@@ -73,7 +78,11 @@ try {
   Write-Host "  extracted to $TempDir"
 
   Write-Host "==> [3/5] Sync master to origin/master" -ForegroundColor Cyan
-  Invoke-Checked "git" @("fetch", "origin", "master")
+  if (-not $NoFetch) {
+    Invoke-Checked "git" @("fetch", "origin", "master")
+  } else {
+    Write-Host "  -NoFetch: using cached origin/master"
+  }
   Invoke-Checked "git" @("checkout", "-B", "master", "origin/master")
   $newVersion = (Get-Content (Join-Path $RepoRoot "apps\cli\package.json") -Raw | ConvertFrom-Json).version
   $newCommit = & git rev-parse --short HEAD

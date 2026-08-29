@@ -90,6 +90,20 @@ if (-not (Test-Path $BuiltEntry)) {
 }
 
 Write-Host "==> [2/8] Clean output" -ForegroundColor Cyan
+# Stop leftover app/server processes first: they hold DLL handles inside the
+# previous bundle and would block the cleanup below.
+Get-Process dsh, electron -ErrorAction SilentlyContinue | ForEach-Object {
+  Write-Host "  stopping leftover process $($_.Id) ($($_.ProcessName))"
+  Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Seconds 1
+$conn = Get-NetTCPConnection -LocalPort 3080 -State Listen -ErrorAction SilentlyContinue
+if ($conn) {
+  $conn | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object {
+    Write-Host "  stopping leftover server process $_"
+    Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+  }
+}
 if (Test-Path $OutApp) { Remove-Item $OutApp -Recurse -Force }
 New-Item -ItemType Directory -Path $Runtime -Force | Out-Null
 
